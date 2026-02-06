@@ -1,0 +1,7 @@
+date,session_id,project_name,session_type,start_time,end_time,keystroke_rate,mouse_activity,app_switches,idle_time_minutes,focus_score,cognitive_load,mental_state
+2026-01-10,S001,DevMind,Coding,09:00,10:30,320,210,8,5,82,0.42,Deep Work
+2026-01-10,S002,DevMind,Coding,10:45,12:00,290,180,12,7,75,0.55,Optimal Focus
+2026-01-10,S003,ResearchAI,Research,14:00,15:15,180,160,22,12,58,0.78,Cognitive Overload
+2026-01-11,S004,DevMind,Coding,09:15,10:45,310,200,9,6,80,0.45,Deep Work
+2026-01-11,S005,ResearchAI,Research,11:00,12:30,200,170,20,10,62,0.72,Optimal Focus
+2026-01-11,S006,Portfolio,Writing,15:00,16:00,150,130,18,14,54,0.81,Cognitive Overload
