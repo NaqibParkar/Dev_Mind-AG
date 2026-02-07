@@ -7,7 +7,7 @@ import { Settings } from './pages/Settings';
 import { LiveDetection } from './pages/LiveDetection';
 import { Auth } from './pages/Auth';
 import { NavigationPage, Project, AppSettings } from './types';
-import { MOCK_PROJECTS, DEFAULT_SETTINGS } from './constants';
+import { DEFAULT_SETTINGS } from './constants';
 import { AlertSystem } from './components/Alerts';
 
 import { api } from './api';
@@ -76,10 +76,19 @@ const App: React.FC = () => {
         if (newProject.status === 'Active') {
           return [newProject, ...prev.map(p => ({ ...p, status: 'Inactive' as const }))];
         }
-        return [newProject, ...prev];
       });
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleDeleteProject = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this project?")) return;
+    try {
+      await api.deleteProject(id);
+      setProjects(projects.filter(p => p.id !== id));
+    } catch (error) {
+      console.error("Failed to delete project", error);
     }
   };
 
@@ -101,6 +110,7 @@ const App: React.FC = () => {
             projects={projects}
             onSetActive={handleSetActiveProject}
             onCreate={handleCreateProject}
+            onDelete={handleDeleteProject}
           />
         );
       case 'settings':

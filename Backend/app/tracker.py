@@ -11,6 +11,22 @@ except ImportError:
 from . import crud, schemas
 from .database import SessionLocal
 from .models import Project
+import ctypes
+from ctypes import wintypes
+
+def get_active_window():
+    try:
+        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+        if length == 0:
+            return "Unknown"
+        buff = ctypes.create_unicode_buffer(length + 1)
+        ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
+        # print(f"DEBUG: Active Window: {buff.value}") # Uncomment for debugging
+        return buff.value
+    except Exception as e:
+        print(f"Error getting window: {e}")
+        return "Unknown"
 
 class ActivityTracker:
     def __init__(self):
@@ -28,7 +44,8 @@ class ActivityTracker:
         with self._lock:
             return {
                 "keystrokes": self.keystrokes,
-                "mouse_distance": self.mouse_distance
+                "mouse_distance": self.mouse_distance,
+                "active_window": get_active_window()
             }
         
     def _on_press(self, key):
@@ -79,12 +96,14 @@ class ActivityTracker:
             project_id = active_project.id if active_project else None
             
             # Ensure your schema matches these names!
+            current_window = get_active_window()
             activity = schemas.ActivityData(
                 timestamp=datetime.utcnow(),
                 keystrokes=keystrokes,
                 mouse_distance=mouse_dist,
-                active_window="Active Window", 
-                project_id=project_id
+                active_window=current_window if current_window else "Idle", 
+                project_id=project_id,
+                # Add dummy values for required fields if any (schema defaults to 0 mostly)
             )
             crud.log_activity(db, activity)
             db.close()

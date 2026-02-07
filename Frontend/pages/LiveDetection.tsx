@@ -63,20 +63,28 @@ export const LiveDetection: React.FC<LiveDetectionProps> = ({ activeProject }) =
             else setMouseSpeed('Slow');
 
             // Update Active App (from Backend)
-            // Just map string to category crudely for UI demo
             const appName = stats.active_window || "Unknown";
             let category: ActiveApp['category'] = 'Documentation';
-            if (appName.includes('VS Code') || appName.includes('Code')) category = 'Coding';
-            else if (appName.includes('Chrome') || appName.includes('Edge')) category = 'Browser';
-            else if (appName.includes('Spotify')) category = 'Entertainment';
+
+            // Simple Category Logic
+            if (appName.includes('VS Code') || appName.includes('Code') || appName.includes('.py') || appName.includes('.tsx')) category = 'Coding';
+            else if (appName.includes('Chrome') || appName.includes('Edge') || appName.includes('Firefox')) category = 'Browser';
+            else if (appName.includes('Spotify') || appName.includes('Netflix')) category = 'Entertainment';
 
             setActiveApp({ name: appName, category });
 
-            // Update Burnout Risk logic based on backend cognitive_load/focus_score if available
-            // or fallback to client-side heuristics
-            if (stats.cognitive_load > 80) setBurnoutLevel('High');
-            else if (stats.cognitive_load > 50) setBurnoutLevel('Moderate');
-            else setBurnoutLevel('Low');
+            // Update Burnout Risk logic based on ML prediction
+            if (stats.burnout_risk) {
+               // Map API string to UI state
+               if (stats.burnout_risk === 'High Risk') setBurnoutLevel('High');
+               else if (stats.burnout_risk === 'Moderate Risk') setBurnoutLevel('Moderate');
+               else setBurnoutLevel('Low');
+            } else {
+               // Fallback
+               if (stats.cognitive_load > 80) setBurnoutLevel('High');
+               else if (stats.cognitive_load > 50) setBurnoutLevel('Moderate');
+               else setBurnoutLevel('Low');
+            }
 
             // Insight Logic
             if (stats.focus_score > 80) setInsight("High focus state detected. Maintain flow.");

@@ -41,6 +41,16 @@ def update_project_status(db: Session, project_id: str, status: str):
         db.refresh(project)
     return project
 
+def delete_project(db: Session, project_id: str):
+    # Delete associated activity logs first (Manual Cascade)
+    db.query(models.ActivityLog).filter(models.ActivityLog.project_id == project_id).delete()
+    
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if project:
+        db.delete(project)
+        db.commit()
+    return project
+
 def get_settings(db: Session):
     settings = db.query(models.Settings).first()
     if not settings:
@@ -89,3 +99,70 @@ def log_activity(db: Session, activity: schemas.ActivityData):
     db.commit()
     db.refresh(db_activity)
     return db_activity
+
+def get_dashboard_stats(db: Session):
+    # Calculate aggregates for "Today"
+    # In a real app, filtering by date is essential.
+    # For now, we take the latest log or average of recent logs.
+    
+    total_logs = db.query(models.ActivityLog).count()
+    if total_logs == 0:
+        return {
+            "current_zone": "No Data",
+            "focus_score": 0,
+            "burnout_risk": "Low",
+            "deep_work_minutes": 0,
+            "chart_data": []
+        }
+    
+    # Simple aggregation logic
+    # Get logs from last 24h or just all for this MVP
+    logs = db.query(models.ActivityLog).order_by(models.ActivityLog.timestamp.asc()).all()
+    
+    avg_focus = sum(l.focus_score for l in logs) / total_logs
+    
+    # Chart data: Group by hour?
+    # Simplified: Just take the last 12 points or so
+    chart_data = []
+    for log in logs[-12:]:
+        chart_data.append({
+            "name": log.timestamp.strftime("%H:%M"),
+            "val": log.cognitive_load
+        })
+        
+    return {
+        "current_zone": "Optimal Focus" if avg_focus > 70 else "Distracted",
+        "focus_score": int(avg_focus),
+        "burnout_risk": "Low", # logic pending
+        "deep_work_minutes": 0, # logic pending
+        "chart_data": chart_data
+    }
+
+def get_analytics_data(db: Session, project_id: Optional[str] = None, granularity: str = 'hourly'):
+    query = db.query(models.ActivityLog)
+    if project_id:
+        query = query.filter(models.ActivityLog.project_id == project_id)
+        
+    logs = query.order_by(models.ActivityLog.timestamp.asc()).all()
+    
+    # Very simple aggregation for MVP
+    # In a real app, this needs complex SQL time-bucketing
+    data = []
+    
+    # Group by hour/day based on granularity
+    # For now, just return raw logs mapped to chart format
+    # Limit to reasonable amount to avoid UI crash
+    limit = 24 if granularity == 'hourly' else 7
+    
+    for log in logs[-limit:]:
+        data.append({
+            "label": log.timestamp.strftime("%H:%M" if granularity == 'hourly' else "%a"),
+            "focus": log.focus_score,
+            "workload": int(log.cognitive_load * 100) if log.cognitive_load <= 1 else int(log.cognitive_load), # Normailze if needed
+            "cognitiveLoad": int(log.cognitive_load * 100) if log.cognitive_load <= 1 else int(log.cognitive_load),
+             # Comparative data (mocking 0 for now as we have no history)
+            "prevFocus": 0,
+            "prevWorkload": 0
+        })
+        
+    return data

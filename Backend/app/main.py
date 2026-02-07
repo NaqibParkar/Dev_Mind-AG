@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from . import crud, models, schemas
 from .database import SessionLocal, engine, get_db
 from .tracker import ActivityTracker
+from .routers import auth
 
 # 1. Initialize Database Tables
 # This ensures devmind.db has the latest ActivityLog schema
@@ -43,6 +44,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+app.include_router(auth.router)
+
 # 5. CORS Configuration
 # Allows your Vite/React frontend to communicate with this API
 origins = ["*"]
@@ -69,32 +72,66 @@ def get_live_activity(db: Session = Depends(get_db)):
     # Get the latest processed record from SQLite
     latest = db.query(models.ActivityLog).order_by(models.ActivityLog.timestamp.desc()).first()
     
+    # ML Prediction for Burnout Risk
+    # current_keystrokes is instantaneous from memory, but model trained on rate/min?
+    # Let's scale it slightly or just pass raw. Synthetic model expects 0-500 rate.
+    # memory stats are likely small (since last clear 5s ago).
+    # so we project to minute rate: val * 12
+    
+    # ML Prediction for Burnout Risk
+    burnout_risk = "Low" # Default
+    try:
+        kpm = memory_stats.get("keystrokes", 0) * 12 
+        mouse_activity = memory_stats.get("mouse_distance", 0)
+        
+        cog_load = latest.cognitive_load if latest else 0
+        focus = latest.focus_score if latest else 0
+        
+        burnout_risk = predictor.predict(
+            cognitive_load=cog_load,
+            focus_score=focus,
+            keystrokes=kpm,
+            mouse_dist=mouse_activity
+        )
+    except Exception as e:
+        print(f"ML Prediction Warning: {e}")
+        burnout_risk = "Error"
+
+    # Active Window Logic
+    # Strict Real-time: Do NOT fallback to DB for "Active Window". 
+    # DB is history. This is live.
+    live_window = memory_stats.get("active_window")
+    if not live_window:
+        live_window = "Unknown"
+        
     return {
         "keystrokes": memory_stats.get("keystrokes", 0),
         "mouse_intensity": memory_stats.get("mouse_distance", 0),
-        "focus_score": latest.focus_score if latest else 0,
-        "cognitive_load": latest.cognitive_load if latest else 0,
-        "active_window": latest.active_window if latest else "Initializing..."
+        "focus_score": focus,
+        "cognitive_load": cog_load,
+        "active_window": live_window,
+        "burnout_risk": burnout_risk 
     }
+
+@app.get("/activity/dashboard")
+def get_dashboard_stats(db: Session = Depends(get_db)):
+    """
+    Returns aggregated stats for the main dashboard.
+    """
+    return crud.get_dashboard_stats(db)
+
+@app.get("/activity/analytics")
+def get_analytics_data(project_id: str = None, granularity: str = 'hourly', db: Session = Depends(get_db)):
+    """
+    Returns historical analytics data.
+    """
+    return crud.get_analytics_data(db, project_id, granularity)
 
 # --- Project Management Routes ---
 @app.get("/projects", response_model=list[schemas.Project])
 def read_projects(db: Session = Depends(get_db)):
     projects = crud.get_projects(db)
-    results = []
-    for p in projects:
-        # Transforming DB model to match your frontend types.ts requirements
-        results.append({
-            "id": p.id,
-            "name": p.name,
-            "description": p.description,
-            "color": p.color,
-            "status": p.status,
-            "timeSpentMinutes": 120, # In a final version, calculate this from ActivityLog
-            "avgFocusScore": 75,
-            "workload": 50
-        })
-    return results
+    return projects
 
 @app.post("/projects", response_model=schemas.Project)
 def create_project(project: schemas.ProjectCreate, db: Session = Depends(get_db)):
@@ -106,6 +143,13 @@ def update_project_status(project_id: str, status: str, db: Session = Depends(ge
     if not updated_project:
         raise HTTPException(status_code=404, detail="Project not found")
     return updated_project
+
+@app.delete("/projects/{project_id}")
+def delete_project(project_id: str, db: Session = Depends(get_db)):
+    deleted_project = crud.delete_project(db=db, project_id=project_id)
+    if not deleted_project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"message": "Project deleted successfully", "id": project_id}
 
 # --- Settings & Configuration ---
 @app.get("/settings", response_model=schemas.AppSettings)

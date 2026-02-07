@@ -10,6 +10,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     full_name = Column(String, nullable=True)
+    is_verified = Column(Boolean, default=False)
 
 class Project(Base):
     __tablename__ = "projects"

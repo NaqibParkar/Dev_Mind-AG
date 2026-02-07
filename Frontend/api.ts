@@ -27,6 +27,13 @@ export const api = {
     return response.json();
   },
 
+  async deleteProject(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/projects/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete project');
+  },
+
   async getSettings(): Promise<AppSettings> {
     const response = await fetch(`${API_BASE_URL}/settings`);
     if (!response.ok) throw new Error('Failed to fetch settings');
@@ -49,15 +56,48 @@ export const api = {
     focus_score: number;
     cognitive_load: number;
     active_window: string;
+    burnout_risk?: string;
   }> {
     const response = await fetch(`${API_BASE_URL}/activity/live`);
     if (!response.ok) throw new Error('Failed to fetch live activity');
     return response.json();
   },
 
-  // Placeholder for Auth
-  async login(): Promise<User> {
-    // For now, just return a mock user
-    return { name: 'Developer', email: 'dev@devmind.local' };
+  async getAnalyticsData(projectId: string | null, granularity: string): Promise<{
+    label: string;
+    focus: number;
+    workload: number;
+    cognitiveLoad: number;
+    prevFocus: number;
+    prevWorkload: number;
+  }[]> {
+    const query = new URLSearchParams({ granularity });
+    if (projectId) query.append('project_id', projectId);
+
+    const response = await fetch(`${API_BASE_URL}/activity/analytics?${query.toString()}`);
+    if (!response.ok) throw new Error('Failed to fetch analytics data');
+    return response.json();
+  },
+
+  async login(email: string, password: string): Promise<User & { accessToken: string }> {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!response.ok) throw new Error('Login failed');
+    const data = await response.json();
+    return { name: email.split('@')[0], email, accessToken: data.access_token };
+  },
+
+  async register(email: string, password: string, fullName?: string): Promise<User & { accessToken: string }> {
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, full_name: fullName }),
+    });
+    if (!response.ok) throw new Error('Registration failed');
+    const data = await response.json();
+    return { name: fullName || email.split('@')[0], email, accessToken: data.access_token };
   }
 };

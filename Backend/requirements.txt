@@ -1,9 +1,13 @@
+psycopg2-binary
+python-multipart
 fastapi
 uvicorn
 sqlalchemy
 pydantic
-python-multipart
 pynput
 greenlet
 passlib[bcrypt]
 python-jose[cryptography]
+scikit-learn
+pandas
+numpy
