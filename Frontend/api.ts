@@ -57,6 +57,7 @@ export const api = {
     cognitive_load: number;
     active_window: string;
     burnout_risk?: string;
+    context_switches?: number;
   }> {
     const response = await fetch(`${API_BASE_URL}/activity/live`);
     if (!response.ok) throw new Error('Failed to fetch live activity');

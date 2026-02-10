@@ -28,7 +28,7 @@ export const LiveDetection: React.FC<LiveDetectionProps> = ({ activeProject }) =
    const [kpmHistory, setKpmHistory] = useState<{ i: number; val: number }[]>(Array.from({ length: 20 }, (_, i) => ({ i, val: 0 })));
    const [mouseSpeed, setMouseSpeed] = useState<'Slow' | 'Moderate' | 'Rapid'>('Slow');
    const [activeApp, setActiveApp] = useState<ActiveApp>(APPS[0]);
-   const [switchCount, setSwitchCount] = useState(12);
+   const [switchCount, setSwitchCount] = useState(0);
    const [switchTrend, setSwitchTrend] = useState<'stable' | 'up' | 'down'>('stable');
    const [insight, setInsight] = useState("Monitoring baseline activity...");
 
@@ -58,8 +58,8 @@ export const LiveDetection: React.FC<LiveDetectionProps> = ({ activeProject }) =
             setKpmHistory(prev => [...prev.slice(1), { i: prev[prev.length - 1].i + 1, val: calculatedKpm }]);
 
             // Mouse Speed
-            if (deltaMouse > 1000) setMouseSpeed('Rapid');
-            else if (deltaMouse > 200) setMouseSpeed('Moderate');
+            if (deltaMouse > 9000) setMouseSpeed('Rapid');
+            else if (deltaMouse > 3000) setMouseSpeed('Moderate');
             else setMouseSpeed('Slow');
 
             // Update Active App (from Backend)
@@ -91,6 +91,14 @@ export const LiveDetection: React.FC<LiveDetectionProps> = ({ activeProject }) =
             else if (stats.cognitive_load > 90) setInsight("High cognitive load. Consider a micro-break.");
             else if (calculatedKpm > 100) setInsight("High typing throughput.");
             else setInsight("Monitoring baseline activity...");
+
+            // Context Switches
+            if (stats.context_switches !== undefined) {
+               setSwitchCount(stats.context_switches);
+               // Simple trend logic
+               // In a real app we'd track history. For now just keep it stable or random for demo?
+               // Actually user wants real data. We just show the count.
+            }
 
          } catch (e) {
             console.error("Live fetch error", e);

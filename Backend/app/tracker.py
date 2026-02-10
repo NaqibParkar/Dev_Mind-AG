@@ -37,34 +37,50 @@ class ActivityTracker:
         self._running = False
         self._lock = threading.Lock()
         
-        self.keyboard_listener = None
         self.mouse_listener = None
+        
+        # New: Context Switch Tracking
+        self.context_switches = 0
+        self.current_window = "Unknown"
+        
+        # New: Cumulative Stats for Live UI
+        self.total_keystrokes = 0
+        self.total_mouse_distance = 0.0
 
     def get_current_stats(self):
         with self._lock:
             return {
                 "keystrokes": self.keystrokes,
                 "mouse_distance": self.mouse_distance,
-                "active_window": get_active_window()
+                "total_keystrokes": self.total_keystrokes,
+                "total_mouse_distance": self.total_mouse_distance,
+                "active_window": self.current_window, 
+                "context_switches": self.context_switches
             }
         
     def _on_press(self, key):
         with self._lock:
             self.keystrokes += 1
+            self.total_keystrokes += 1
 
     def _on_move(self, x, y):
-        with self._lock:
-            if self.last_x is not None and self.last_y is not None:
-                # Calculate real pixel distance instead of just +1
-                dist = math.sqrt((x - self.last_x)**2 + (y - self.last_y)**2)
-                self.mouse_distance += dist
-            self.last_x = x
-            self.last_y = y
+        try:
+            with self._lock:
+                if self.last_x is not None and self.last_y is not None:
+                    # Calculate real pixel distance instead of just +1
+                    dist = math.sqrt((x - self.last_x)**2 + (y - self.last_y)**2)
+                    self.mouse_distance += dist
+                    self.total_mouse_distance += dist
+                self.last_x = x
+                self.last_y = y
+        except Exception as e:
+            print(f"Mouse listener error: {e}")
 
     def start(self):
         if not keyboard or not mouse:
             print("Pynput not available. Tracking disabled.")
             return
+        
         self._running = True
         self.keyboard_listener = keyboard.Listener(on_press=self._on_press)
         self.mouse_listener = mouse.Listener(on_move=self._on_move)
@@ -74,7 +90,35 @@ class ActivityTracker:
         # CHANGED: Faster loop for "Live" feel
         self.thread = threading.Thread(target=self._logging_loop, daemon=True)
         self.thread.start()
+        
+        # New: Window Monitor Thread (Fast Poll)
+        self.monitor_thread = threading.Thread(target=self._monitor_window_loop, daemon=True)
+        self.monitor_thread.start()
+        
         print("Activity Tracker Started - Logging every 5 seconds")
+
+    def _monitor_window_loop(self):
+        """Polls active window frequently to catch switches."""
+        last_window = "Unknown"
+        while self._running:
+            time.sleep(0.5) # Check every 500ms
+            
+            try:
+                new_window = get_active_window()
+                
+                # Update current window securely
+                with self._lock:
+                    self.current_window = new_window
+                    
+                # Detect switch (ignore Unknown/Empty)
+                if new_window and new_window != "Unknown" and new_window != last_window:
+                    if last_window != "Unknown": # Don't count initialization as a switch
+                         with self._lock:
+                             self.context_switches += 1
+                    last_window = new_window
+                    
+            except Exception as e:
+                print(f"Monitor error: {e}")
 
     def _logging_loop(self):
         while self._running:
@@ -83,6 +127,15 @@ class ActivityTracker:
             with self._lock:
                 current_keystrokes = self.keystrokes
                 current_mouse = int(self.mouse_distance) # Convert to int
+                # self.keystrokes = 0 # Don't reset for live view? 
+                # Actually we DO want to reset for DB log, but maybe keep cumulative for live?
+                # The current implementation resets. Let's keep it consistent.
+                # Live view calculates delta.
+                
+                # We need to snapshot context switches for logging or just accumulate?
+                # For now, let's keep context_switches cumulative for the session.
+                pass 
+                
                 self.keystrokes = 0
                 self.mouse_distance = 0
             
@@ -96,7 +149,9 @@ class ActivityTracker:
             project_id = active_project.id if active_project else None
             
             # Ensure your schema matches these names!
-            current_window = get_active_window()
+            # Use cached window or get new? Cached is fine.
+            with self._lock:
+                current_window = self.current_window
             activity = schemas.ActivityData(
                 timestamp=datetime.utcnow(),
                 keystrokes=keystrokes,

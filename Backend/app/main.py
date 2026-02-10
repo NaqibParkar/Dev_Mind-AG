@@ -8,6 +8,7 @@ from . import crud, models, schemas
 from .database import SessionLocal, engine, get_db
 from .tracker import ActivityTracker
 from .routers import auth
+from .ml_service import BurnoutPredictor
 
 # 1. Initialize Database Tables
 # This ensures devmind.db has the latest ActivityLog schema
@@ -15,6 +16,7 @@ models.Base.metadata.create_all(bind=engine)
 
 # 2. Global Tracker Instance
 tracker = ActivityTracker()
+predictor = BurnoutPredictor()
 
 # 3. Lifespan Context Manager
 # This starts/stops the pynput listeners when the server starts/stops
@@ -81,8 +83,13 @@ def get_live_activity(db: Session = Depends(get_db)):
     # ML Prediction for Burnout Risk
     burnout_risk = "Low" # Default
     try:
-        kpm = memory_stats.get("keystrokes", 0) * 12 
-        mouse_activity = memory_stats.get("mouse_distance", 0)
+        # Use stable stats from tracker (Last 5s interval)
+        # Multiplier: 5s interval * 12 = 60s (KPM)
+        kpm = memory_stats.get("last_interval_keystrokes", 0) * 12 
+        mouse_activity = memory_stats.get("last_interval_mouse", 0)
+        
+        # Debug
+        # print(f"ML Input: KPM={kpm}, Mouse={mouse_activity}")
         
         cog_load = latest.cognitive_load if latest else 0
         focus = latest.focus_score if latest else 0
@@ -105,12 +112,13 @@ def get_live_activity(db: Session = Depends(get_db)):
         live_window = "Unknown"
         
     return {
-        "keystrokes": memory_stats.get("keystrokes", 0),
-        "mouse_intensity": memory_stats.get("mouse_distance", 0),
+        "keystrokes": memory_stats.get("total_keystrokes", 0),
+        "mouse_intensity": memory_stats.get("total_mouse_distance", 0),
         "focus_score": focus,
         "cognitive_load": cog_load,
         "active_window": live_window,
-        "burnout_risk": burnout_risk 
+        "burnout_risk": burnout_risk,
+        "context_switches": memory_stats.get("context_switches", 0)
     }
 
 @app.get("/activity/dashboard")
