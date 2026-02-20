@@ -1,6 +1,6 @@
 import threading
 import time
-import math # Added for distance calc
+import math
 from datetime import datetime
 try:
     from pynput import keyboard, mouse
@@ -22,18 +22,28 @@ def get_active_window():
             return "Unknown"
         buff = ctypes.create_unicode_buffer(length + 1)
         ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
-        # print(f"DEBUG: Active Window: {buff.value}") # Uncomment for debugging
+        # print(f"DEBUG: Detected Window: {buff.value}") # Uncomment for verbose window debugging
         return buff.value
     except Exception as e:
-        print(f"Error getting window: {e}")
         return "Unknown"
 
 class ActivityTracker:
     def __init__(self):
-        self.keystrokes = 0
-        self.mouse_distance = 0.0
-        self.last_x = None # Track previous position
+        # Monotonic Counters (Never reset unless restart)
+        self.total_keystrokes = 0
+        self.total_mouse_distance = 0.0
+
+        self.last_x = None 
         self.last_y = None
+        
+        # Stats for ML/API (Last 5s interval)
+        self.last_interval_keystrokes = 0
+        self.last_interval_mouse = 0.0
+        
+        # Context Switching
+        self.context_switches = 0
+        self.last_window = None
+
         self._running = False
         self._lock = threading.Lock()
         
@@ -42,60 +52,97 @@ class ActivityTracker:
 
     def get_current_stats(self):
         with self._lock:
+            current_window = get_active_window()
+            
+            # Detect Context Switch
+            if self.last_window and current_window != self.last_window and current_window != "Unknown":
+                self.context_switches += 1
+            
+            self.last_window = current_window
+
             return {
-                "keystrokes": self.keystrokes,
-                "mouse_distance": self.mouse_distance,
-                "active_window": get_active_window()
+                "keystrokes": self.total_keystrokes,
+                "mouse_distance": self.total_mouse_distance,
+                "active_window": current_window,
+                "last_interval_keystrokes": self.last_interval_keystrokes,
+                "last_interval_mouse": self.last_interval_mouse,
+                "context_switches": self.context_switches
             }
         
     def _on_press(self, key):
         with self._lock:
-            self.keystrokes += 1
+            self.total_keystrokes += 1
+            if self.total_keystrokes % 10 == 0:
+                print(f"DEBUG: 10 keys pressed. Total: {self.total_keystrokes}")
 
     def _on_move(self, x, y):
-        with self._lock:
-            if self.last_x is not None and self.last_y is not None:
-                # Calculate real pixel distance instead of just +1
-                dist = math.sqrt((x - self.last_x)**2 + (y - self.last_y)**2)
-                self.mouse_distance += dist
-            self.last_x = x
-            self.last_y = y
+        try:
+            with self._lock:
+                if self.last_x is not None and self.last_y is not None:
+                    dist = math.sqrt((x - self.last_x)**2 + (y - self.last_y)**2)
+                    self.total_mouse_distance += dist
+                self.last_x = x
+                self.last_y = y
+        except Exception as e:
+            pass
 
     def start(self):
         if not keyboard or not mouse:
-            print("Pynput not available. Tracking disabled.")
+            print("ERROR: Pynput not available. Tracking disabled.")
             return
         self._running = True
-        self.keyboard_listener = keyboard.Listener(on_press=self._on_press)
-        self.mouse_listener = mouse.Listener(on_move=self._on_move)
-        self.keyboard_listener.start()
-        self.mouse_listener.start()
+        try:
+            self.keyboard_listener = keyboard.Listener(on_press=self._on_press)
+            self.mouse_listener = mouse.Listener(on_move=self._on_move)
+            self.keyboard_listener.start()
+            self.mouse_listener.start()
+            print("DEBUG: Keyboard and Mouse listeners started.")
+        except Exception as e:
+            print(f"ERROR: Failed to start listeners: {e}")
         
-        # CHANGED: Faster loop for "Live" feel
         self.thread = threading.Thread(target=self._logging_loop, daemon=True)
         self.thread.start()
-        print("Activity Tracker Started - Logging every 5 seconds")
+        print("DEBUG: Activity Tracker Background Thread Started")
+
+    def stop(self):
+        self._running = False
+        if self.keyboard_listener: self.keyboard_listener.stop()
+        if self.mouse_listener: self.mouse_listener.stop()
 
     def _logging_loop(self):
+        last_logged_keys = 0
+        last_logged_mouse = 0.0
+
         while self._running:
-            time.sleep(5) # CHANGED from 60 to 5 seconds
+            time.sleep(5)
             
             with self._lock:
-                current_keystrokes = self.keystrokes
-                current_mouse = int(self.mouse_distance) # Convert to int
-                self.keystrokes = 0
-                self.mouse_distance = 0
+                current_total_keys = self.total_keystrokes
+                current_total_mouse = self.total_mouse_distance
+                
+                # Calculate Delta for this interval
+                delta_keys = current_total_keys - last_logged_keys
+                delta_mouse = current_total_mouse - last_logged_mouse
+                
+                # Store for ML
+                self.last_interval_keystrokes = delta_keys
+                self.last_interval_mouse = delta_mouse
+                
+                # Update last logged checkpoints
+                last_logged_keys = current_total_keys
+                last_logged_mouse = current_total_mouse
             
-            # Always log if running to keep the "Live" chart moving
-            self._save_to_db(current_keystrokes, current_mouse)
+            # Log the DELTA to DB
+            self._save_to_db(delta_keys, int(delta_mouse))
 
     def _save_to_db(self, keystrokes, mouse_dist):
+        # ... (same as before)
+        db = None
         try:
             db = SessionLocal()
             active_project = db.query(Project).filter(Project.status == "Active").first()
             project_id = active_project.id if active_project else None
             
-            # Ensure your schema matches these names!
             current_window = get_active_window()
             activity = schemas.ActivityData(
                 timestamp=datetime.utcnow(),
@@ -103,9 +150,10 @@ class ActivityTracker:
                 mouse_distance=mouse_dist,
                 active_window=current_window if current_window else "Idle", 
                 project_id=project_id,
-                # Add dummy values for required fields if any (schema defaults to 0 mostly)
             )
             crud.log_activity(db, activity)
-            db.close()
         except Exception as e:
             print(f"Error logging: {e}")
+        finally:
+            if db:
+                db.close()

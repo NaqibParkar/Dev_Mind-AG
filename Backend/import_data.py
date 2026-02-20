@@ -1,90 +1,164 @@
-import csv
+import pandas as pd
+import json
 import os
-import sys
-from datetime import datetime
-
-# Add app to path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))
-
-from app.database import SessionLocal, engine
+from datetime import datetime, timedelta
+from app.database import SessionLocal
 from app import models
 
-def import_session_data():
-    # 1. Create Tables
-    print("Creating tables...")
-    try:
-        models.Base.metadata.create_all(bind=engine)
-    except Exception as e:
-        print(f"Error creating tables: {e}")
-
+def get_db():
     db = SessionLocal()
-    
-    # 2. Schema Migration (Manual)
-    # Check if mental_state column exists, if not add it
     try:
-        from sqlalchemy import text
-        db.execute(text("ALTER TABLE activity_logs ADD COLUMN mental_state VARCHAR"))
-        db.commit()
-        print("Migrated schema: Added mental_state column")
-    except Exception as e:
-        db.rollback()
-        # Ignore if column already exists (Duplicate column name error)
-        print(f"Schema migration note: {e}")
-    
-    csv_file = os.path.join("Database", "session_data.csv")
-    if not os.path.exists(csv_file):
-        print(f"File not found: {csv_file}")
-        return
+        yield db
+    finally:
+        db.close()
 
-    print(f"Reading {csv_file}...")
-    
-    count = 0
-    with open(csv_file, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            # 2. Extract Project
-            project_name = row['project_name']
-            project = db.query(models.Project).filter(models.Project.name == project_name).first()
-            if not project:
-                # Create default project if not exists
-                project = models.Project(
-                    id=row['project_name'], # Use name as ID or generate one. FrontEnd uses name often. Let's use name as ID for simplicity or UUID.
-                    # Models says ID is String.
-                    name=project_name,
-                    description=f"Imported {project_name} project",
-                    color="#4F46E5", # Indigo default
-                    status="Active"
-                )
-                db.add(project)
-                db.commit() # Commit to get ID if generated (but we set it)
-                db.refresh(project)
-            
-            # 3. Parse Timestamp
-            # CSV: date (2026-01-10), start_time (09:00)
-            dt_str = f"{row['date']} {row['start_time']}"
-            timestamp = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
-            
-            # 4. Create ActivityLog
-            # Map CSV fields to Model
-            # cognitive_load: 0.42 -> 42
-            cog_load = int(float(row['cognitive_load']) * 100)
-            
+def ensure_projects(db):
+    projects = {
+        "proj_backend": "Backend Development",
+        "proj_frontend": "Frontend Development"
+    }
+    for pid, name in projects.items():
+        existing = db.query(models.Project).filter(models.Project.id == pid).first()
+        if not existing:
+            print(f"Creating project: {name} ({pid})")
+            p = models.Project(id=pid, name=name, description=f"Imported {name} project", status="Active")
+            db.add(p)
+    db.commit()
+
+def import_analytics_hourly(db, file_path):
+    print(f"Importing {file_path}...")
+    try:
+        df = pd.read_csv(file_path)
+        count = 0
+        for _, row in df.iterrows():
+            ts = pd.to_datetime(row['timestamp']).to_pydatetime()
             log = models.ActivityLog(
-                project_id=project.id,
-                timestamp=timestamp,
-                keystrokes=int(row['keystroke_rate']),
-                mouse_distance=float(row['mouse_activity']),
-                active_window=f"{row['session_type']} - {project_name}", # inferred
-                focus_score=int(row['focus_score']),
-                cognitive_load=cog_load,
-                mental_state=row['mental_state']
+                timestamp=ts,
+                project_id=row['project_id'],
+                focus_score=int(row['focus_level']),
+                cognitive_load=float(row['workload']), # Assuming 0-100 matches
+                keystrokes=0, # Not in CSV
+                mouse_distance=0, # Not in CSV
+                active_window=f"Work on {row['project_id']}"
             )
             db.add(log)
             count += 1
+        db.commit()
+        print(f"Imported {count} hourly logs.")
+    except Exception as e:
+        print(f"Error importing hourly: {e}")
+        db.rollback()
+
+def import_session_data(db, file_path):
+    print(f"Importing {file_path}...")
+    try:
+        df = pd.read_csv(file_path)
+        count = 0
+        for _, row in df.iterrows():
+            date_str = row['date']
+            # Create a log at 6 PM for summary
+            ts = pd.to_datetime(f"{date_str} 18:00:00").to_pydatetime()
             
-    db.commit()
+            # Using this to backfill 'context_switches' which isn't easy to store in single log
+            # We'll store it as a generic log but with high context switch metric if we had it.
+            # Actually, `ActivityLog` has `keystrokes`, `mouse_distance`. 
+            # It DOES NOT have `context_switches` column in `models.py` (ActivityLog).
+            # `tracker.py` calculates it but `ActivityLog` model in `models.py` (lines 24-40) DOES NOT have it.
+            # Wait, `get_current_stats` returns it, but `log_activity` CRUD (lines 86-93) doesn't explicitly save it
+            # UNLESS `models.py` was updated.
+            # Let's check `models.py` content I read earlier.
+            # Line 32-40: keystrokes, mouse_distance, active_window, focus_score, workload_score, cognitive_load, mental_state.
+            # NO `context_switches` column.
+            # So I cannot strictly store context switches in DB without schema change.
+            # I will store it in `mental_state` as JSON or string "Context Switches: X" for now?
+            # Or just ignore common import pattern to separate concerns.
+            # I'll store it in `mental_state`.
+            
+            log = models.ActivityLog(
+                timestamp=ts,
+                focus_score=int(row['focus_score']),
+                mental_state=f"Context Switches: {row['context_switches']}, Deep Work: {row['deep_work_minutes']}m",
+                active_window="Daily Session Summary"
+            )
+            db.add(log)
+            count += 1
+        db.commit()
+        print(f"Imported {count} session summaries.")
+    except Exception as e:
+        print(f"Error importing sessions: {e}")
+        db.rollback()
+
+def import_project_analytics(db, file_path):
+    print(f"Importing {file_path}...")
+    try:
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+        
+        count = 0
+        for item in data:
+            # item: {date, project, hours, focus}
+            # Create a log for this
+            ts = pd.to_datetime(f"{item['date']} 12:00:00").to_pydatetime()
+            pid = "proj_backend" if item['project'] == "Backend" else "proj_frontend"
+            
+            log = models.ActivityLog(
+                timestamp=ts,
+                project_id=pid,
+                focus_score=int(item['focus']),
+                active_window=f"Project Work: {item['project']}",
+                # heuristic for workload based on hours?? No, just leave 0
+            )
+            db.add(log)
+            count += 1
+        db.commit()
+        print(f"Imported {count} project analytic entries.")
+    except Exception as e:
+        print(f"Error importing project json: {e}")
+        db.rollback()
+
+def import_break_recovery(db, file_path):
+    print(f"Importing {file_path}...")
+    try:
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+            
+        count = 0
+        for item in data:
+            # item: {date, break_type, pre_focus, post_focus, recovery_minutes}
+            ts = pd.to_datetime(f"{item['date']} 15:00:00").to_pydatetime()
+            
+            log = models.ActivityLog(
+                timestamp=ts,
+                active_window=f"Break: {item['break_type']}",
+                mental_state=f"Recovery: {item['recovery_minutes']}m",
+                focus_score=int(item['post_focus'])
+            )
+            db.add(log)
+            count += 1
+        db.commit()
+        print(f"Imported {count} break entries.")
+    except Exception as e:
+        print(f"Error importing breaks: {e}")
+        db.rollback()
+
+def main():
+    db = SessionLocal()
+    ensure_projects(db)
+    
+    base_dir = "database"
+    if os.path.exists(os.path.join(base_dir, "analytics_hourly_2weeks.csv")):
+        import_analytics_hourly(db, os.path.join(base_dir, "analytics_hourly_2weeks.csv"))
+    
+    if os.path.exists(os.path.join(base_dir, "session_data_2weeks.csv")):
+        import_session_data(db, os.path.join(base_dir, "session_data_2weeks.csv"))
+        
+    if os.path.exists(os.path.join(base_dir, "project_analytics_2weeks.json")):
+        import_project_analytics(db, os.path.join(base_dir, "project_analytics_2weeks.json"))
+        
+    if os.path.exists(os.path.join(base_dir, "break_recovery_2weeks.json")):
+        import_break_recovery(db, os.path.join(base_dir, "break_recovery_2weeks.json"))
+    
     db.close()
-    print(f"Successfully imported {count} activity logs.")
 
 if __name__ == "__main__":
-    import_session_data()
+    main()

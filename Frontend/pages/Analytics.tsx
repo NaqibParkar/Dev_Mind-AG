@@ -88,8 +88,8 @@ export const Analytics: React.FC<AnalyticsProps> = ({ activeProject }) => {
               key={g}
               onClick={() => setGranularity(g)}
               className={`px-4 py-1.5 rounded-lg text-sm font-medium capitalize transition-all ${granularity === g
-                  ? 'bg-white text-indigo-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
                 }`}
             >
               {g === 'hourly' ? 'Time' : g}
@@ -267,12 +267,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ activeProject }) => {
       </Card>
 
       {/* --- FOOTER INFO --- */}
-      <div className="flex justify-center pt-4">
-        <div className="flex items-center space-x-2 text-slate-400 bg-slate-50 px-4 py-2 rounded-full border border-slate-100 shadow-sm">
-          <Icons.ShieldCheck className="w-3 h-3" />
-          <span className="text-[10px] font-medium uppercase tracking-wide">Analytics update live based on selected filters. All data is processed locally.</span>
-        </div>
-      </div>
+
     </div>
   );
 };

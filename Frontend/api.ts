@@ -50,6 +50,18 @@ export const api = {
     return response.json();
   },
 
+  async getDashboardStats(): Promise<{
+    current_zone: string;
+    focus_score: number;
+    burnout_risk: string;
+    deep_work_minutes: number;
+    chart_data: { name: string; val: number }[];
+  }> {
+    const response = await fetch(`${API_BASE_URL}/activity/dashboard`);
+    if (!response.ok) throw new Error('Failed to fetch dashboard stats');
+    return response.json();
+  },
+
   async getLiveActivity(): Promise<{
     keystrokes: number;
     mouse_intensity: number;
@@ -57,6 +69,7 @@ export const api = {
     cognitive_load: number;
     active_window: string;
     burnout_risk?: string;
+    context_switches: number;
   }> {
     const response = await fetch(`${API_BASE_URL}/activity/live`);
     if (!response.ok) throw new Error('Failed to fetch live activity');

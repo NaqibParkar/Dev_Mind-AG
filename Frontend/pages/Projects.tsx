@@ -14,17 +14,8 @@ export const Projects: React.FC<ProjectsProps> = ({ projects, onSetActive, onCre
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDesc, setNewProjectDesc] = useState('');
-  const [selectedColor, setSelectedColor] = useState('bg-indigo-500');
+  // Color selection removed
   const [startActive, setStartActive] = useState(false);
-
-  const colorOptions = [
-    { class: 'bg-indigo-500', label: 'Indigo' },
-    { class: 'bg-teal-400', label: 'Teal' },
-    { class: 'bg-purple-400', label: 'Purple' },
-    { class: 'bg-blue-500', label: 'Blue' },
-    { class: 'bg-amber-400', label: 'Amber' },
-    { class: 'bg-rose-400', label: 'Rose' },
-  ];
 
   const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +25,7 @@ export const Projects: React.FC<ProjectsProps> = ({ projects, onSetActive, onCre
       id: Date.now().toString(),
       name: newProjectName,
       description: newProjectDesc,
-      color: selectedColor,
+      // color removed
       timeSpentMinutes: 0,
       avgFocusScore: 0,
       workload: 0,
@@ -76,7 +67,7 @@ export const Projects: React.FC<ProjectsProps> = ({ projects, onSetActive, onCre
             >
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div className="flex items-start space-x-4">
-                  <div className={`w-14 h-14 rounded-2xl ${project.color} flex items-center justify-center shadow-lg shadow-indigo-500/10 text-white font-bold text-2xl`}>
+                  <div className={`w-14 h-14 rounded-2xl bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/10 text-white font-bold text-2xl`}>
                     {project.name.charAt(0).toUpperCase()}
                   </div>
                   <div>
@@ -95,25 +86,8 @@ export const Projects: React.FC<ProjectsProps> = ({ projects, onSetActive, onCre
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 gap-4 flex-1 max-w-2xl bg-slate-50/50 p-4 rounded-xl border border-slate-100">
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Time</p>
-                    <p className="text-lg font-bold text-slate-700">
-                      {Math.floor(project.timeSpentMinutes / 60)}h {project.timeSpentMinutes % 60}m
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Avg Focus</p>
-                    <p className="text-lg font-bold text-slate-700">
-                      {project.avgFocusScore > 0 ? `${project.avgFocusScore}%` : '--'}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Workload</p>
-                    <p className="text-lg font-bold text-slate-700">
-                      {project.workload > 0 ? `${project.workload}%` : '--'}
-                    </p>
-                  </div>
+                <div className="flex justify-end items-center gap-4 flex-1 max-w-2xl bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+
                   <div className="space-y-1 flex flex-col justify-between items-end">
                     <div>
                       <p className="text-xs font-medium text-slate-400 uppercase tracking-wide text-right">Status</p>
@@ -191,21 +165,6 @@ export const Projects: React.FC<ProjectsProps> = ({ projects, onSetActive, onCre
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-200 outline-none transition-all resize-none h-20 placeholder:text-slate-300"
                   placeholder="What are the goals for this project?"
                 />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Color Tag</label>
-                <div className="flex gap-3">
-                  {colorOptions.map((opt) => (
-                    <button
-                      key={opt.class}
-                      type="button"
-                      onClick={() => setSelectedColor(opt.class)}
-                      className={`w-8 h-8 rounded-full ${opt.class} transition-all ${selectedColor === opt.class ? 'ring-4 ring-slate-100 scale-110 shadow-md' : 'opacity-70 hover:opacity-100 hover:scale-105'}`}
-                      title={opt.label}
-                    />
-                  ))}
-                </div>
               </div>
 
               <div className="flex items-center space-x-3 p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer" onClick={() => setStartActive(!startActive)}>

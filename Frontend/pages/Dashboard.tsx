@@ -51,10 +51,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeProject }) => {
     <div className="space-y-6">
 
       {/* Top Stats Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-            <Icons.Brain className="w-16 h-16 text-indigo-600" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-fade-in-up">
+        <Card className="relative overflow-hidden group hover:!shadow-2xl hover:!scale-[1.02] transition-all duration-500">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-30 transition-opacity duration-500">
+            <Icons.Brain className="w-20 h-20 text-indigo-600 rotate-12" />
           </div>
           <div className="relative z-10">
             <p className="text-sm font-medium text-slate-500 mb-1">Current Mental State</p>
@@ -73,14 +73,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeProject }) => {
               <Icons.ArrowUp className="w-4 h-4 text-green-600" />
             </div>
           </div>
-          <ProgressBar value={stats.focusScore} color="bg-gradient-to-r from-teal-400 to-teal-500" />
+          <ProgressBar value={stats.focusScore} color="bg-gradient-to-r from-blue-400 to-indigo-500" />
         </Card>
 
         <Card>
           <p className="text-sm font-medium text-slate-500 mb-1">Burnout Risk</p>
           <h3 className="text-2xl font-bold text-slate-800 mb-2">{stats.burnoutRisk}</h3>
           <div className="flex items-center space-x-2 text-sm text-slate-500">
-            <div className={`w-2 h-2 rounded-full ${stats.burnoutRisk === 'Low' ? 'bg-green-500' : 'bg-amber-500'}`}></div>
+            <div className={`w-2 h-2 rounded-full ${stats.burnoutRisk === 'Low' ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`}></div>
             <span>Stable levels detected</span>
           </div>
         </Card>
@@ -93,7 +93,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeProject }) => {
       </div>
 
       {/* Main Content Split */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in-up animation-delay-500">
 
         {/* Live Metrics */}
         <div className="lg:col-span-2 space-y-6">
@@ -103,8 +103,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeProject }) => {
                 <AreaChart data={stats.chartData}>
                   <defs>
                     <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#818cf8" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#818cf8" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
@@ -114,7 +114,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeProject }) => {
                     contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                     itemStyle={{ color: '#4f46e5' }}
                   />
-                  <Area type="monotone" dataKey="val" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorVal)" />
+                  <Area type="monotone" dataKey="val" stroke="#4f46e5" strokeWidth={3} fillOpacity={1} fill="url(#colorVal)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -123,11 +123,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ activeProject }) => {
 
         {/* Side Panel: Journal & Productivity */}
         <div className="space-y-6">
-          <Card title="Productivity Nudge" className="bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-100/50">
+          <Card title="Productivity Nudge" className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-100/50">
             <div className="space-y-4">
               <div className="flex items-center space-x-3">
                 <div className="p-2 bg-white rounded-lg shadow-sm">
-                  <Icons.Zap className="w-5 h-5 text-indigo-500" />
+                  <Icons.Zap className="w-5 h-5 text-amber-500" />
                 </div>
                 <p className="text-sm text-slate-600">Your focus usually peaks around <span className="font-semibold text-indigo-700">10:00 AM</span>. Great time for complex tasks.</p>
               </div>

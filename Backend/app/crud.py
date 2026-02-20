@@ -25,7 +25,7 @@ def create_project(db: Session, project: schemas.ProjectCreate):
         id=project.id,
         name=project.name,
         description=project.description,
-        color=project.color,
+        # color=project.color, # Removed
         status=project.status
     )
     db.add(db_project)
@@ -101,11 +101,10 @@ def log_activity(db: Session, activity: schemas.ActivityData):
     return db_activity
 
 def get_dashboard_stats(db: Session):
-    # Calculate aggregates for "Today"
-    # In a real app, filtering by date is essential.
-    # For now, we take the latest log or average of recent logs.
-    
-    total_logs = db.query(models.ActivityLog).count()
+    """
+    Returns aggregated stats for the Dashboard from the activity_data_log table.
+    """
+    total_logs = db.query(models.ActivityDataLog).count()
     if total_logs == 0:
         return {
             "current_zone": "No Data",
@@ -115,54 +114,121 @@ def get_dashboard_stats(db: Session):
             "chart_data": []
         }
     
-    # Simple aggregation logic
-    # Get logs from last 24h or just all for this MVP
-    logs = db.query(models.ActivityLog).order_by(models.ActivityLog.timestamp.asc()).all()
+    # Query all rows ordered by timestamp (time-only TEXT, sorts correctly as HH:MM:SS)
+    logs = db.query(models.ActivityDataLog).order_by(models.ActivityDataLog.timestamp.asc()).all()
     
-    avg_focus = sum(l.focus_score for l in logs) / total_logs
+    # Average focus score
+    avg_focus = sum(l.focus_score or 0 for l in logs) / total_logs
     
-    # Chart data: Group by hour?
-    # Simplified: Just take the last 12 points or so
+    # Determine current mental zone from latest log
+    latest = logs[-1]
+    current_zone = latest.mental_state or "Unknown"
+    
+    # Burnout risk heuristic: high cognitive load + low focus = risk
+    avg_cog = sum(l.cognitive_load or 0 for l in logs) / total_logs
+    if avg_cog > 70 and avg_focus < 40:
+        burnout_risk = "High"
+    elif avg_cog > 50 and avg_focus < 60:
+        burnout_risk = "Moderate"
+    else:
+        burnout_risk = "Low"
+    
+    # Deep work estimate: count logs where mental_state indicates deep focus
+    deep_states = {"Deep Focus", "Flow", "Optimal Focus", "Deep Work"}
+    deep_count = sum(1 for l in logs if l.mental_state in deep_states)
+    # Each log roughly represents ~1 minute of activity (300 logs across a day)
+    deep_work_minutes = deep_count
+    
+    # Chart data: Cognitive Load timeline (sample every few points to avoid overcrowding)
+    step = max(1, len(logs) // 20)  # ~20 data points for the chart
     chart_data = []
-    for log in logs[-12:]:
+    for i in range(0, len(logs), step):
+        log = logs[i]
+        # Format timestamp: take HH:MM from "HH:MM:SS"
+        time_label = log.timestamp[:5] if log.timestamp and len(log.timestamp) >= 5 else log.timestamp
         chart_data.append({
-            "name": log.timestamp.strftime("%H:%M"),
-            "val": log.cognitive_load
+            "name": time_label,
+            "val": log.cognitive_load or 0
         })
-        
+    
     return {
-        "current_zone": "Optimal Focus" if avg_focus > 70 else "Distracted",
+        "current_zone": current_zone,
         "focus_score": int(avg_focus),
-        "burnout_risk": "Low", # logic pending
-        "deep_work_minutes": 0, # logic pending
+        "burnout_risk": burnout_risk,
+        "deep_work_minutes": deep_work_minutes,
         "chart_data": chart_data
     }
 
 def get_analytics_data(db: Session, project_id: Optional[str] = None, granularity: str = 'hourly'):
-    query = db.query(models.ActivityLog)
+    """
+    Returns analytics data from the activity_data_log table.
+    Groups by hour for 'hourly', or returns summarized data for other granularities.
+    """
+    query = db.query(models.ActivityDataLog)
     if project_id:
-        query = query.filter(models.ActivityLog.project_id == project_id)
+        # The frontend sends a Project ID (e.g. "proj_001").
+        # However, the imported activity_data_log might use project names or slugs (e.g. "Dev_Mind").
+        # We try to match: project_id == input OR project_id == Project.name OR project == Project.name
         
-    logs = query.order_by(models.ActivityLog.timestamp.asc()).all()
-    
-    # Very simple aggregation for MVP
-    # In a real app, this needs complex SQL time-bucketing
-    data = []
-    
-    # Group by hour/day based on granularity
-    # For now, just return raw logs mapped to chart format
-    # Limit to reasonable amount to avoid UI crash
-    limit = 24 if granularity == 'hourly' else 7
-    
-    for log in logs[-limit:]:
-        data.append({
-            "label": log.timestamp.strftime("%H:%M" if granularity == 'hourly' else "%a"),
-            "focus": log.focus_score,
-            "workload": int(log.cognitive_load * 100) if log.cognitive_load <= 1 else int(log.cognitive_load), # Normailze if needed
-            "cognitiveLoad": int(log.cognitive_load * 100) if log.cognitive_load <= 1 else int(log.cognitive_load),
-             # Comparative data (mocking 0 for now as we have no history)
-            "prevFocus": 0,
-            "prevWorkload": 0
-        })
+        project = db.query(models.Project).filter(models.Project.id == project_id).first()
         
-    return data
+        from sqlalchemy import or_
+        conditions = [models.ActivityDataLog.project_id == project_id]
+        
+        if project:
+            # Add name-based matching
+            conditions.append(models.ActivityDataLog.project_id == project.name)
+            conditions.append(models.ActivityDataLog.project == project.name)
+            
+            # Special case for "DevMind" -> "Dev_Mind" (common in import data)
+            if project.name == "DevMind":
+                conditions.append(models.ActivityDataLog.project_id == "Dev_Mind")
+                conditions.append(models.ActivityDataLog.project == "Dev_Mind")
+
+        query = query.filter(or_(*conditions))
+        
+    logs = query.order_by(models.ActivityDataLog.timestamp.asc()).all()
+    
+    if not logs:
+        return []
+    
+    if granularity == 'hourly':
+        # Group by hour bucket (HH:00) from time-only timestamp "HH:MM:SS"
+        from collections import OrderedDict
+        buckets = OrderedDict()
+        for log in logs:
+            hour = log.timestamp[:2] + ":00" if log.timestamp and len(log.timestamp) >= 2 else "00:00"
+            if hour not in buckets:
+                buckets[hour] = {"focus": [], "workload": [], "cogLoad": []}
+            buckets[hour]["focus"].append(log.focus_score or 0)
+            buckets[hour]["workload"].append(log.workload_score or 0)
+            buckets[hour]["cogLoad"].append(log.cognitive_load or 0)
+        
+        data = []
+        for label, vals in buckets.items():
+            data.append({
+                "label": label,
+                "focus": int(sum(vals["focus"]) / len(vals["focus"])),
+                "workload": int(sum(vals["workload"]) / len(vals["workload"])),
+                "cognitiveLoad": int(sum(vals["cogLoad"]) / len(vals["cogLoad"])),
+                "prevFocus": 0,
+                "prevWorkload": 0
+            })
+        return data
+    
+    else:
+        # For daily/weekly: just return sampled data points
+        step = max(1, len(logs) // 7)
+        data = []
+        for i in range(0, len(logs), step):
+            log = logs[i]
+            time_label = log.timestamp[:5] if log.timestamp and len(log.timestamp) >= 5 else log.timestamp
+            data.append({
+                "label": time_label,
+                "focus": log.focus_score or 0,
+                "workload": log.workload_score or 0,
+                "cognitiveLoad": log.cognitive_load or 0,
+                "prevFocus": 0,
+                "prevWorkload": 0
+            })
+        return data

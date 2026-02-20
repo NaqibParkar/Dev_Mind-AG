@@ -82,6 +82,13 @@ class BurnoutPredictor:
         self.is_trained = True
 
     def predict(self, cognitive_load, focus_score, keystrokes, mouse_dist):
+        # Deterministic overrides based on user thresholds
+        # Rapid > 7000 or KPM > 600 -> Moderate (or High if very intense)
+        if mouse_dist > 12000 or keystrokes > 1000:
+             return "High Risk"
+        elif mouse_dist > 7000 or keystrokes > 600:
+             return "Moderate Risk"
+
         if not self.is_trained:
             return "Unknown"
             

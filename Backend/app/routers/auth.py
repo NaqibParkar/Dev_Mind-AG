@@ -7,7 +7,8 @@ from pydantic import BaseModel
 from typing import Optional
 
 # Setup Pwd Context (Duplicated for now, should be in a utils file)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Switching to pbkdf2_sha256 due to bcrypt issues on Windows environment
+pwd_context = CryptContext(schemes=["pbkdf2_sha256", "bcrypt"], deprecated="auto")
 
 router = APIRouter(
     prefix="/auth",
@@ -68,11 +69,23 @@ def register(user: UserRegister, db: Session = Depends(database.get_db)):
 
 @router.post("/login", response_model=Token)
 def login(user: UserLogin, db: Session = Depends(database.get_db)):
+    print(f"Login attempt for: {user.email}")
     db_user = db.query(User).filter(User.email == user.email).first()
     if not db_user:
+        print("User not found in DB")
         raise HTTPException(status_code=400, detail="Invalid credentials")
     
-    if not verify_password(user.password, db_user.hashed_password):
+    print(f"User found. ID: {db_user.id}. Verifying password...")
+    try:
+        is_valid = verify_password(user.password, db_user.hashed_password)
+        print(f"Password verification result: {is_valid}")
+        if not is_valid:
+            print(f"Hash mismatch. Stored: {db_user.hashed_password[:10]}...")
+            raise HTTPException(status_code=400, detail="Invalid credentials")
+    except Exception as e:
+        print(f"Error during verification: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail="Invalid credentials")
         
     return {

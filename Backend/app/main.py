@@ -1,23 +1,31 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
+import json
+import csv
+import io
 
-# Local imports - adjusted for your app/ folder structure
+# ... (rest of imports)
+
+# Local imports
 from . import crud, models, schemas
 from .database import SessionLocal, engine, get_db
 from .tracker import ActivityTracker
 from .routers import auth
+from .ml_service import BurnoutPredictor
 
 # 1. Initialize Database Tables
-# This ensures devmind.db has the latest ActivityLog schema
-models.Base.metadata.create_all(bind=engine)
+try:
+    models.Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"Warning: Database connection failed. Tables not created. Error: {e}")
 
 # 2. Global Tracker Instance
 tracker = ActivityTracker()
+predictor = BurnoutPredictor()
 
 # 3. Lifespan Context Manager
-# This starts/stops the pynput listeners when the server starts/stops
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Start hardware listeners (keyboard and mouse)
@@ -47,8 +55,13 @@ app = FastAPI(
 app.include_router(auth.router)
 
 # 5. CORS Configuration
-# Allows your Vite/React frontend to communicate with this API
-origins = ["*"]
+# 5. CORS Configuration
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173", # Vite default
+    "http://127.0.0.1:5173",
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -73,16 +86,12 @@ def get_live_activity(db: Session = Depends(get_db)):
     latest = db.query(models.ActivityLog).order_by(models.ActivityLog.timestamp.desc()).first()
     
     # ML Prediction for Burnout Risk
-    # current_keystrokes is instantaneous from memory, but model trained on rate/min?
-    # Let's scale it slightly or just pass raw. Synthetic model expects 0-500 rate.
-    # memory stats are likely small (since last clear 5s ago).
-    # so we project to minute rate: val * 12
-    
-    # ML Prediction for Burnout Risk
     burnout_risk = "Low" # Default
     try:
-        kpm = memory_stats.get("keystrokes", 0) * 12 
-        mouse_activity = memory_stats.get("mouse_distance", 0)
+        # Use stable stats from tracker (Last 5s interval)
+        # Multiplier: 5s interval * 12 = 60s (KPM)
+        kpm = memory_stats.get("last_interval_keystrokes", 0) * 12 
+        mouse_activity = memory_stats.get("last_interval_mouse", 0)
         
         cog_load = latest.cognitive_load if latest else 0
         focus = latest.focus_score if latest else 0
@@ -98,8 +107,6 @@ def get_live_activity(db: Session = Depends(get_db)):
         burnout_risk = "Error"
 
     # Active Window Logic
-    # Strict Real-time: Do NOT fallback to DB for "Active Window". 
-    # DB is history. This is live.
     live_window = memory_stats.get("active_window")
     if not live_window:
         live_window = "Unknown"
@@ -110,7 +117,8 @@ def get_live_activity(db: Session = Depends(get_db)):
         "focus_score": focus,
         "cognitive_load": cog_load,
         "active_window": live_window,
-        "burnout_risk": burnout_risk 
+        "burnout_risk": burnout_risk,
+        "context_switches": memory_stats.get("context_switches", 0)
     }
 
 @app.get("/activity/dashboard")
@@ -179,3 +187,37 @@ def read_settings(db: Session = Depends(get_db)):
 @app.put("/settings", response_model=schemas.AppSettings)
 def update_settings(settings: schemas.AppSettingsBase, db: Session = Depends(get_db)):
     return crud.update_settings(db=db, settings=settings)
+
+@app.post("/upload/data")
+async def upload_data(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    Upload CSV or JSON file containing activity data.
+    """
+    content = await file.read()
+    filename = file.filename.lower()
+    data_to_store = None
+
+    try:
+        if filename.endswith('.json'):
+            data_to_store = json.loads(content)
+        elif filename.endswith('.csv'):
+            # Parse CSV to JSON-like list of dicts
+            csv_file = io.StringIO(content.decode('utf-8'))
+            reader = csv.DictReader(csv_file)
+            data_to_store = [row for row in reader]
+        else:
+            raise HTTPException(status_code=400, detail="Invalid file type. Only .json and .csv are supported.")
+            
+        # Create DB Entry
+        new_upload = models.UploadedActivity(
+            filename=file.filename,
+            data=data_to_store
+        )
+        db.add(new_upload)
+        db.commit()
+        db.refresh(new_upload)
+        
+        return {"message": "File uploaded successfully", "id": new_upload.id, "rows": len(data_to_store) if isinstance(data_to_store, list) else 1}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload processing failed: {str(e)}")

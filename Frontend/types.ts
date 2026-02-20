@@ -25,7 +25,7 @@ export interface Project {
   id: string;
   name: string;
   description?: string;
-  color: string; // Tailwind class equivalent or hex
+  // color: string; // Removed
   timeSpentMinutes: number;
   avgFocusScore: number;
   workload: number; // Added workload metric

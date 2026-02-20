@@ -21,7 +21,7 @@ class User(UserBase):
 class ProjectBase(BaseModel):
     name: str
     description: Optional[str] = None
-    color: str
+    # color: str # Removed
     status: Literal['Active', 'Archived', 'Inactive'] = 'Active'
 
 class ProjectCreate(ProjectBase):
