@@ -169,7 +169,7 @@ class ActivityTracker:
             self._save_to_db(delta_keys, int(delta_mouse))
 
     def _save_to_db(self, keystrokes, mouse_dist):
-        # ... (same as before)
+        # Ensure project and window are tracked
         db = None
         try:
             db = SessionLocal()
