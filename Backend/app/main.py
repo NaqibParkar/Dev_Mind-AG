@@ -92,6 +92,12 @@ def get_live_activity(db: Session = Depends(get_db)):
         # Multiplier: 5s interval * 12 = 60s (KPM)
         kpm = memory_stats.get("last_interval_keystrokes", 0) * 12 
         mouse_activity = memory_stats.get("last_interval_mouse", 0)
+<<<<<<< HEAD
+=======
+        
+        # Debug
+        # print(f"ML Input: KPM={kpm}, Mouse={mouse_activity}")
+>>>>>>> fe835b42a87b31893e6e481cd1dc0573487af4b5
         
         cog_load = latest.cognitive_load if latest else 0
         focus = latest.focus_score if latest else 0
@@ -112,8 +118,8 @@ def get_live_activity(db: Session = Depends(get_db)):
         live_window = "Unknown"
         
     return {
-        "keystrokes": memory_stats.get("keystrokes", 0),
-        "mouse_intensity": memory_stats.get("mouse_distance", 0),
+        "keystrokes": memory_stats.get("total_keystrokes", 0),
+        "mouse_intensity": memory_stats.get("total_mouse_distance", 0),
         "focus_score": focus,
         "cognitive_load": cog_load,
         "active_window": live_window,

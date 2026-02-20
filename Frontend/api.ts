@@ -68,7 +68,6 @@ export const api = {
     focus_score: number;
     cognitive_load: number;
     active_window: string;
-    burnout_risk?: string;
     context_switches: number;
   }> {
     const response = await fetch(`${API_BASE_URL}/activity/live`);

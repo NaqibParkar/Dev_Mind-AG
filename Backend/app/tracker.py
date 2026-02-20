@@ -47,18 +47,22 @@ class ActivityTracker:
         self._running = False
         self._lock = threading.Lock()
         
-        self.keyboard_listener = None
         self.mouse_listener = None
+        
+        # New: Context Switch Tracking
+        self.context_switches = 0
+        self.current_window = "Unknown"
+        
+        # New: Cumulative Stats for Live UI
+        self.total_keystrokes = 0
+        self.total_mouse_distance = 0.0
 
     def get_current_stats(self):
         with self._lock:
-            current_window = get_active_window()
+            current_window = self.current_window
             
-            # Detect Context Switch
-            if self.last_window and current_window != self.last_window and current_window != "Unknown":
-                self.context_switches += 1
-            
-            self.last_window = current_window
+            # Detect Context Switch (Already handled in monitor loop, but let's be double sure if needed)
+            # For now, we use the values updated by the monitor loop.
 
             return {
                 "keystrokes": self.total_keystrokes,
@@ -90,6 +94,7 @@ class ActivityTracker:
         if not keyboard or not mouse:
             print("ERROR: Pynput not available. Tracking disabled.")
             return
+        
         self._running = True
         try:
             self.keyboard_listener = keyboard.Listener(on_press=self._on_press)
@@ -102,12 +107,40 @@ class ActivityTracker:
         
         self.thread = threading.Thread(target=self._logging_loop, daemon=True)
         self.thread.start()
-        print("DEBUG: Activity Tracker Background Thread Started")
+        
+        # New: Window Monitor Thread (Fast Poll) from origin/main
+        self.monitor_thread = threading.Thread(target=self._monitor_window_loop, daemon=True)
+        self.monitor_thread.start()
+        
+        print("DEBUG: Activity Tracker Background Threads Started")
 
     def stop(self):
         self._running = False
         if self.keyboard_listener: self.keyboard_listener.stop()
         if self.mouse_listener: self.mouse_listener.stop()
+
+    def _monitor_window_loop(self):
+        """Polls active window frequently to catch switches."""
+        last_window = "Unknown"
+        while self._running:
+            time.sleep(0.5) # Check every 500ms
+            
+            try:
+                new_window = get_active_window()
+                
+                # Update current window securely
+                with self._lock:
+                    self.current_window = new_window
+                    
+                # Detect switch (ignore Unknown/Empty)
+                if new_window and new_window != "Unknown" and new_window != last_window:
+                    if last_window != "Unknown": # Don't count initialization as a switch
+                         with self._lock:
+                             self.context_switches += 1
+                    last_window = new_window
+                    
+            except Exception as e:
+                print(f"Monitor error: {e}")
 
     def _logging_loop(self):
         last_logged_keys = 0
@@ -143,7 +176,8 @@ class ActivityTracker:
             active_project = db.query(Project).filter(Project.status == "Active").first()
             project_id = active_project.id if active_project else None
             
-            current_window = get_active_window()
+            with self._lock:
+                current_window = self.current_window
             activity = schemas.ActivityData(
                 timestamp=datetime.utcnow(),
                 keystrokes=keystrokes,

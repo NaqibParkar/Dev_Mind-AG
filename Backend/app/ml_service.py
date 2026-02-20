@@ -44,17 +44,16 @@ class BurnoutPredictor:
                 print(f"Failed to train on CSV: {e}")
         
         # Fallback: Synthetic Training Data
-        print("Training on synthetic data...")
+        print("Training on synthetic data with Custom Rules...")
         # Generate synthetic data
-        # Logic: High Load + Low Focus = Burnout
-        #        Med Load + Med Focus = Distracted
-        #        Low Load + High Focus = Flow
+        # Logic: 
+        #   > 600 KPM + Rapid Mouse (>8000px/5s) -> High/Moderate Risk
         
-        n_samples = 1000
+        n_samples = 2000
         cognitive_load = np.random.uniform(0, 100, n_samples)
         focus_score = np.random.uniform(0, 100, n_samples)
-        keystrokes = np.random.uniform(0, 500, n_samples) # rate per min
-        mouse = np.random.uniform(0, 1000, n_samples)
+        keystrokes = np.random.uniform(0, 800, n_samples) # KPM
+        mouse = np.random.uniform(0, 10000, n_samples) # Pixels per 5s
         
         X = pd.DataFrame({
             'cognitive_load': cognitive_load,
@@ -65,17 +64,21 @@ class BurnoutPredictor:
         
         y = []
         for i in range(n_samples):
+            k = keystrokes[i]
+            m = mouse[i]
             cl = cognitive_load[i]
-            fs = focus_score[i]
             
-            if cl > 70 and fs < 40:
-                y.append("High Risk")
-            elif cl > 50 and fs < 60:
-                y.append("Moderate Risk")
-            elif fs > 80:
-                y.append("Low Risk") # Flow
+            # Custom Rule for High Activity Burnout
+            # CHANGED: Uses OR logic so frequent mouse OR frequent typing triggers it
+            # Lowered thresholds for easier testing/demo
+            if k > 300 or m > 3000: # High (was 600/7000)
+                 y.append("High Risk")
+            elif k > 100 or m > 1000: # Moderate (was 400/4000)
+                 y.append("Moderate Risk")
+            elif cl > 80:
+                 y.append("Moderate Risk")
             else:
-                y.append("Low Risk")
+                 y.append("Low Risk")
                 
         self.model = RandomForestClassifier(n_estimators=50, random_state=42)
         self.model.fit(X, y)

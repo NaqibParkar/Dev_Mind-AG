@@ -90,6 +90,14 @@ export const LiveDetection: React.FC<LiveDetectionProps> = ({ activeProject }) =
             else if (calculatedKpm > 100) setInsight("High typing throughput.");
             else setInsight("Monitoring baseline activity...");
 
+            // Context Switches
+            if (stats.context_switches !== undefined) {
+               setSwitchCount(stats.context_switches);
+               // Simple trend logic
+               // In a real app we'd track history. For now just keep it stable or random for demo?
+               // Actually user wants real data. We just show the count.
+            }
+
          } catch (e) {
             console.error("Live fetch error", e);
          }
