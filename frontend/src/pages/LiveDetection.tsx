@@ -26,29 +26,77 @@ export const LiveDetection: React.FC<LiveDetectionProps> = ({ activeProject }) =
    const [switchTrend] = useState<'stable' | 'up' | 'down'>('stable');
    const [insight, setInsight] = useState("Monitoring baseline activity...");
 
-   // Real Live Data
+   // Real Live Data (Backend & Browser Fallback)
    const prevStats = React.useRef({ keys: 0, mouse: 0 });
+   const browserActivity = React.useRef({
+      keystrokes: 0,
+      mouseDistance: 0,
+      contextSwitches: 0,
+      lastMousePos: null as { x: number; y: number } | null,
+      intervalKeys: 0,
+      intervalMouse: 0,
+   });
+
+   // Track browser-level inputs for web/Vercel deployment fallback
+   useEffect(() => {
+      const handleKeyDown = () => {
+         browserActivity.current.keystrokes += 1;
+         browserActivity.current.intervalKeys += 1;
+      };
+
+      const handleMouseMove = (e: MouseEvent) => {
+         const last = browserActivity.current.lastMousePos;
+         if (last) {
+            const dist = Math.hypot(e.clientX - last.x, e.clientY - last.y);
+            browserActivity.current.mouseDistance += dist;
+            browserActivity.current.intervalMouse += dist;
+         }
+         browserActivity.current.lastMousePos = { x: e.clientX, y: e.clientY };
+      };
+
+      const handleVisibility = () => {
+         if (document.hidden) {
+            browserActivity.current.contextSwitches += 1;
+         }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('visibilitychange', handleVisibility);
+
+      return () => {
+         window.removeEventListener('keydown', handleKeyDown);
+         window.removeEventListener('mousemove', handleMouseMove);
+         document.removeEventListener('visibilitychange', handleVisibility);
+      };
+   }, []);
 
    useEffect(() => {
       const fetchLive = async () => {
          try {
             const stats = await api.getLiveActivity();
-            console.log("Live Stats:", stats);
+            console.log("Live Stats from Backend:", stats);
             setTimestamp(new Date().toLocaleTimeString());
 
-            // Update Context Switches
-            if (stats.context_switches !== undefined) {
-               setSwitchCount(stats.context_switches);
+            // Check if backend returned valid system-level desktop activity
+            const hasBackendData = stats.keystrokes > 0 || stats.mouse_intensity > 0 || (stats.active_window && stats.active_window !== "Unknown");
+
+            let deltaKeys = 0;
+            let deltaMouse = 0;
+
+            if (hasBackendData) {
+               deltaKeys = stats.keystrokes - prevStats.current.keys;
+               deltaMouse = stats.mouse_intensity - prevStats.current.mouse;
+               if (deltaKeys < 0) deltaKeys = stats.keystrokes;
+               if (deltaMouse < 0) deltaMouse = stats.mouse_intensity;
+               prevStats.current = { keys: stats.keystrokes, mouse: stats.mouse_intensity };
+            } else {
+               // Fallback to browser-level live metrics when cloud backend has no local OS input access
+               deltaKeys = browserActivity.current.intervalKeys;
+               deltaMouse = browserActivity.current.intervalMouse;
+               browserActivity.current.intervalKeys = 0;
+               browserActivity.current.intervalMouse = 0;
             }
-            let deltaKeys = stats.keystrokes - prevStats.current.keys;
-            let deltaMouse = stats.mouse_intensity - prevStats.current.mouse;
-
-            // Handle server restart/reset
-            if (deltaKeys < 0) deltaKeys = stats.keystrokes;
-            if (deltaMouse < 0) deltaMouse = stats.mouse_intensity;
-
-            // Update refs
-            prevStats.current = { keys: stats.keystrokes, mouse: stats.mouse_intensity };
 
             // Calculate KPM (approx 2s interval -> * 30)
             const calculatedKpm = deltaKeys * 30;
@@ -56,47 +104,46 @@ export const LiveDetection: React.FC<LiveDetectionProps> = ({ activeProject }) =
             setKpmHistory(prev => [...prev.slice(1), { i: prev[prev.length - 1].i + 1, val: calculatedKpm }]);
 
             // Mouse Speed
-            if (deltaMouse > 7000) setMouseSpeed('Rapid');
-            else if (deltaMouse > 3500) setMouseSpeed('Moderate');
+            if (deltaMouse > 3000) setMouseSpeed('Rapid');
+            else if (deltaMouse > 1000) setMouseSpeed('Moderate');
             else setMouseSpeed('Slow');
 
-            // Update Active App (from Backend)
-            const appName = stats.active_window || "Unknown";
-            let category: ActiveApp['category'] = 'Documentation';
+            // Update Active App (Backend Desktop Window or Web Browser Tab)
+            let appName = stats.active_window || "Unknown";
+            if (appName === "Unknown" || !hasBackendData) {
+               appName = `Browser Tab: ${document.title || 'DevMind Web App'}`;
+            }
 
-            // Simple Category Logic
+            let category: ActiveApp['category'] = 'Documentation';
             if (appName.includes('VS Code') || appName.includes('Code') || appName.includes('.py') || appName.includes('.tsx')) category = 'Coding';
-            else if (appName.includes('Chrome') || appName.includes('Edge') || appName.includes('Firefox')) category = 'Browser';
+            else if (appName.includes('Chrome') || appName.includes('Edge') || appName.includes('Firefox') || appName.includes('Browser') || appName.includes('DevMind')) category = 'Browser';
             else if (appName.includes('Spotify') || appName.includes('Netflix')) category = 'Entertainment';
 
             setActiveApp({ name: appName, category });
 
-            // Update Burnout Risk logic based on ML prediction
-            if (stats.burnout_risk) {
-               // Map API string to UI state
+            // Context Switches
+            const totalSwitches = (stats.context_switches && stats.context_switches > 0)
+               ? stats.context_switches
+               : browserActivity.current.contextSwitches;
+            setSwitchCount(totalSwitches);
+
+            // Update Burnout Risk logic based on ML prediction or Browser metrics
+            if (hasBackendData && stats.burnout_risk) {
                if (stats.burnout_risk === 'High Risk') setBurnoutLevel('High');
                else if (stats.burnout_risk === 'Moderate Risk') setBurnoutLevel('Moderate');
                else setBurnoutLevel('Low');
             } else {
-               // Fallback
-               if (stats.cognitive_load > 80) setBurnoutLevel('High');
-               else if (stats.cognitive_load > 50) setBurnoutLevel('Moderate');
+               // Dynamic risk estimation based on browser typing cadence & switching
+               if (calculatedKpm > 150 || totalSwitches > 15) setBurnoutLevel('High');
+               else if (calculatedKpm > 80 || totalSwitches > 5) setBurnoutLevel('Moderate');
                else setBurnoutLevel('Low');
             }
 
             // Insight Logic
-            if (stats.focus_score > 80) setInsight("High focus state detected. Maintain flow.");
-            else if (stats.cognitive_load > 90) setInsight("High cognitive load. Consider a micro-break.");
-            else if (calculatedKpm > 100) setInsight("High typing throughput.");
-            else setInsight("Monitoring baseline activity...");
-
-            // Context Switches
-            if (stats.context_switches !== undefined) {
-               setSwitchCount(stats.context_switches);
-               // Simple trend logic
-               // In a real app we'd track history. For now just keep it stable or random for demo?
-               // Actually user wants real data. We just show the count.
-            }
+            if (calculatedKpm > 100) setInsight("High typing throughput detected. Maintain flow.");
+            else if (totalSwitches > 10) setInsight("High context switching observed. Try focusing on a single task.");
+            else if (stats.focus_score > 80) setInsight("High focus state detected. Maintain flow.");
+            else setInsight("Monitoring real-time activity patterns...");
 
          } catch (e) {
             console.error("Live fetch error", e);
